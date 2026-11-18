@@ -147,31 +147,22 @@ The scoring file has a `default` block and optional collection/product-type over
 
 See [the scoring configuration guide](config/README.md) for the complete set of supported fields and options, and [the generic scoring example](config/scoring.example.json) for a starting point.
 
-### Manual GitHub Actions dry run
+### Manual GitHub Actions workflow
 
-The **Collection reorder dry run** workflow processes the approved bases in the private `config/base_collections.json`. It uses the same numeric ID list as `config/base_collections.example.json`. The interactive CLI still ranks the collection you select.
+Choose **Actions → Collection reorder → Run workflow** on the default branch. Each run uses fresh Data Manager exports, ranks offline, and validates each CSV against current Shopify data. The default `dry-run` previews every eligible family in the private base allowlist.
 
-In the sorting repository's **Settings → Secrets and variables → Actions**, add these repository secrets. For file-based secrets, use the complete contents of the indicated local file.
-
-| Secret | Source |
+| Repository secret | Contents |
 | --- | --- |
-| `BASE_COLLECTIONS_JSON` | Sorting's `config/base_collections.json` |
-| `SCORING_JSON` | Sorting's `config/scoring.json` |
-| `SCS_COLLECTIONS_QUERY` | Data Manager's saved `graphql/queries/query_scs_collections.graphql`, including `sortOrder` and both relationship metafields |
-| `SCS_PRODUCTS_QUERY` | Data Manager's saved `graphql/queries/query_scs_products.graphql`. Keep its single numeric `query: "collection_id:…"` filter. The workflow substitutes the approved ID in a temporary copy. |
-| `SCS_ORDERS_QUERY` | Data Manager's saved `graphql/queries/query_scs_orders.graphql` |
-| `SHOPIFY_SHOP`, `SHOPIFY_API_VERSION`, `SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET` | Individual values required by Data Manager. The dry run needs read access to the products, collections, and order history covered by the saved queries. |
+| `BASE_COLLECTIONS_JSON`, `SCORING_JSON` | Contents of the private base allowlist and scoring configuration. Update the corresponding secret when you edit a local file. |
+| `SCS_COLLECTIONS_QUERY`, `SCS_PRODUCTS_QUERY`, `SCS_ORDERS_QUERY` | Saved queries for collection relationships and sort order, products and memberships, and order history. The products query needs one numeric `query: "collection_id:…"` filter. |
+| `SHOPIFY_SHOP`, `SHOPIFY_API_VERSION`, `SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET` | Data Manager connection settings. Live reordering also requires Shopify permission to reorder collection products. |
+| `PILOT_COLLECTIONS` | Required for pilot modes only. Enter two comma-separated collection handles in the order `base-handle,child-handle`. The base must be allowlisted, the child linked in both directions, and both collections nonempty and sorted manually. |
 
-Once the workflow is on the default branch, select **Actions → Collection reorder dry run → Run workflow** and choose that branch. [GitHub manual workflow dispatch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)
+**Preview a pilot** with `preview-pilot`. The summary reports how many CSV batches Data Manager checked for the selected pair. Both preview modes stop before submitting any reorder.
 
-1. Data Manager exports the collections. The sorter selects the approved bases and the children explicitly listed in each base's `filter.filtered_collections`. Each listed child must point back through `filter.base_collection`. Automation requires an exact product count and an exported sort order for each family member.
-2. For families with a nonempty `MANUAL` target, Data Manager exports orders once and products once per base. A nonmanual base can supply the master ranking for a manual child.
-3. The sorter ranks offline, checks membership and counts, and verifies every CSV row against the intended collection, product, position, and 250-position batch. An empty target set produces a successful zero-batch dry run.
-4. Data Manager reads each verified CSV and runs its existing reorder planner against current Shopify data. A preflight error, warning, or unexpected mutation type fails the job. The workflow ends at preflight. For a multi-batch collection, each preflight sees the current store order because the earlier batches have only been previewed.
+**Apply a pilot** with `apply-pilot` when you want to change the two collections in Shopify. The workflow generates a fresh ranking, checks all batches, and replans each batch immediately before applying it. Data Manager waits for the Shopify jobs. The workflow reads the order back after each batch and verifies every position on both collections before reporting success. If a live run fails, earlier moves may already be visible. Check the collections before starting another run.
 
-The run summary reports the batch count. Private files live under the hosted runner's temporary directory and are removed after success or failure. Data-bearing commands suppress their output. The failed step identifies the stage in the Actions log. There is no artifact upload or data cache.
-
-Future production execution will need to replan and apply each batch in order, wait for Data Manager's Shopify jobs, and check its final manifest for success before continuing. Midnight and noon in `America/New_York` are the intended future schedule.
+Exports, rankings and CSVs use temporary runner storage. The workflow suppresses their contents in logs and uploads no artifacts.
 
 ## Output
 

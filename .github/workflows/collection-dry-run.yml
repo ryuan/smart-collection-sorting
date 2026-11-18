@@ -1,6 +1,18 @@
-name: Collection reorder dry run
+name: Collection reorder
+run-name: Collection reorder ${{ inputs.mode }}
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Action to take
+        type: choice
+        required: true
+        default: dry-run
+        options:
+          - dry-run
+          - preview-pilot
+          - apply-pilot
 
 permissions:
   contents: read
@@ -10,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  dry-run:
+  reorder:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -52,6 +64,12 @@ jobs:
           printf '%s' "${PRODUCTS_QUERY:?Missing products query}" > "$private_run/products.graphql"
           printf '%s' "${ORDERS_QUERY:?Missing orders query}" > "$private_run/orders.graphql"
 
+      - name: Load private two-collection scope
+        if: inputs.mode == 'preview-pilot' || inputs.mode == 'apply-pilot'
+        env:
+          PILOT: ${{ secrets.PILOT_COLLECTIONS }}
+        run: printf '%s' "${PILOT:?Missing pilot scope}" > "$PRIVATE_RUN/config/pilot.txt"
+
       - name: Export collections through Data Manager
         env: &data-manager
           PYTHONPATH: ${{ github.workspace }}/data-manager
@@ -77,7 +95,14 @@ jobs:
         run: |
           python .github/scripts/data_manager_dry_run.py preflight "$PRIVATE_RUN" > /dev/null 2>&1
           batches=$(python -c 'import json, sys; print(len(json.load(sys.stdin)))' < "$PRIVATE_RUN/batches.json")
-          echo "Dry run passed for $batches CSV batches. No reorders submitted." >> "$GITHUB_STEP_SUMMARY"
+          echo "Preflight passed for $batches CSV batches." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply pilot and verify both Shopify orders
+        if: inputs.mode == 'apply-pilot'
+        env: *data-manager
+        run: |
+          python .github/scripts/data_manager_dry_run.py apply-pilot "$PRIVATE_RUN" > /dev/null 2>&1
+          echo "Verified the complete Shopify product order on both pilot collections." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Remove temporary run files
         if: always() && env.PRIVATE_RUN != ''

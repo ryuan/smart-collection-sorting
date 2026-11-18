@@ -88,6 +88,33 @@ class AutomationTests(unittest.TestCase):
         self.assertEqual(json.loads((self.root / "batches.json").read_text()), [])
         self.assertFalse((self.root / "bases" / "10").exists())
 
+    def test_pilot_selects_only_the_private_pair(self):
+        extra = dict(self.rows[1], id="gid://shopify/Collection/13", handle="extra")
+        self.rows[0]["children"]["value"] = json.dumps([CHILD, extra["id"]])
+        extra["productsCount"] = count(0)
+        write_rows(self.root / "collections.jsonl", [*self.rows, extra])
+        pilot = self.root / "config/pilot.txt"
+        for pair in ("family,curated", "subset,family", "family,family", "", "family,extra"):
+            pilot.write_text(pair)
+            with patch.object(sys, "argv", ["automation.py", "select", str(self.root)]):
+                with self.subTest(pair=pair), self.assertRaises((KeyError, ValueError)):
+                    main()
+        self.rows[0]["children"]["value"] = json.dumps([CHILD, OTHER])
+        self.rows[2]["parent"] = self.rows[1]["parent"]
+        write_rows(self.root / "collections.jsonl", self.rows)
+        pilot.write_text("family,subset")
+        with patch.object(sys, "argv", ["automation.py", "select", str(self.root)]):
+            main()
+        self.p.rename(self.root / "bases/10/products.jsonl")
+        self.o.rename(self.root / "orders.jsonl")
+        with patch.object(sys, "argv", ["automation.py", "rank", str(self.root)]):
+            main()
+        expected = json.loads((self.root / "pilot-orders.json").read_text())
+        self.assertEqual(set(expected), {BASE, CHILD})
+        batch, = json.loads((self.root / "batches.json").read_text())
+        with (self.root / batch).open() as stream:
+            self.assertEqual({r["parentId"] for r in csv.DictReader(stream)}, {BASE, CHILD})
+
     def test_serialized_batches_reject_damage_and_extra_targets(self):
         path = self.root / "reorder_001_sample.csv"
         header = "id,parentId,newPosition\n"

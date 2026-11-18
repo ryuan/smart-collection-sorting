@@ -72,9 +72,24 @@ def main():
     collections = read_collections(root / "collections.jsonl")
     as_of = datetime.now(timezone.utc).date()
     batches = []
+    pilot = root / "config/pilot.txt"
+    pilot_targets = []
+    if pilot.exists():
+        base_handle, child_handle = (s.strip() for s in pilot.read_text().split(","))
+        by_handle = {row["handle"]: gid for gid, row in collections.items()}
+        base_id, child_id = by_handle[base_handle], by_handle[child_handle]
+        number = int(base_id.rsplit("/", 1)[1])
+        if number not in ids or base_id == child_id:
+            raise ValueError("Pilot requires an approved base and a distinct child.")
+        ids = [number]
+        pilot_targets = [base_id, child_id]
     for number in ids:
         base = f"gid://shopify/Collection/{number}"
         targets = select_targets(base, collections)
+        if pilot_targets:
+            if not set(pilot_targets).issubset(targets):
+                raise ValueError("Both pilot collections must be eligible members of the same family.")
+            targets = pilot_targets
         if not targets:
             continue
         directory = root / "bases" / str(number)
@@ -86,6 +101,9 @@ def main():
         destination, family = rank_collection(files, directory, profiles, collections, base, as_of,
                                               targets=targets)
         batches.extend(str(p.relative_to(root)) for p in validate_batches(destination, targets, family))
+        if pilot_targets:
+            expected = {cid: family[cid] for cid in targets}
+            (root / "pilot-orders.json").write_text(json.dumps(expected), encoding="utf-8")
     if args.stage == "rank":
         # Publish the exact batch list only after every family's files have passed validation.
         (root / "batches.json").write_text(json.dumps(batches), encoding="utf-8")
