@@ -1,0 +1,34 @@
+{
+  "default": {
+    "stock_reward": {
+      "totalInventory": 20
+    },
+    "value_reward": {
+      "vendor": {
+        "Example Home": 8,
+        "Sample Furnishings": 5
+      }
+    },
+    "decaying_reward": {
+      "createdAt": { "reward": 6, "decay_period": 365 },
+      "sales": { "reward": 10, "decay_period": 730 }
+    },
+    "repeat_value_penalty": {
+      "__title_first_word": -2,
+      "filter.color": -2,
+      "filter.material": -2,
+      "catalog.combined_listing_color": -8,
+      "catalog.combined_listing_shape": -8
+    }
+  },
+  "Beds": {
+    "stock_reward": {
+      "totalInventory": 0,
+      "filter.size": {
+        "Queen": 10,
+        "King": 10,
+        "Full": 4
+      }
+    }
+  }
+}
