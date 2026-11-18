@@ -45,7 +45,7 @@ def snapshot(folder, n=3):
     rows = []
     for i in range(n):
         gid = f"gid://shopify/Product/{i+1}"
-        rows.extend([{"id": gid, "handle": f"item-{i}", "title": f"=Item {i}", "vendor": "Modway",
+        rows.extend([{"id": gid, "handle": f"item-{i}", "title": f"=Item {i}", "vendor": "Example Home",
                       "productType": ("Beds", "Vases", "Area Rugs")[i % 3], "createdAt": "2020-01-15T00:00:00Z",
                       "totalInventory": 6, "variantsCount": count(1),
                       **{key.replace(".", "_"): None for key in PRODUCT_FIELDS - {"filter.color"}},
@@ -79,7 +79,7 @@ class SortingTests(unittest.TestCase):
         self.config.write_text(json.dumps({
             "default": {
                 "stock_reward": {"totalInventory": 64},
-                "value_reward": {"vendor": {"Modway": 12}},
+                "value_reward": {"vendor": {"Example Home": 12}},
                 "decaying_reward": {"createdAt": {"reward": 8, "decay_period": 730},
                                     "sales": {"reward": 0.25, "decay_period": 730}},
                 "repeat_value_penalty": {"filter.color": -1, "catalog.combined_listing_color": -4},
@@ -102,7 +102,7 @@ class SortingTests(unittest.TestCase):
         vase["variants"] *= 2
         self.assertEqual(product_score(vase, self.profiles["Vases"], {}, DAY)["base"], 64 + 12 + 12)
         custom = override(self.profiles["default"], {"value_reward": {"filter.color": {"Red": 4, "Beige": -1},
-                                                                      "vendor": {"Surya": 0}}})
+                                                                      "vendor": {"Sample Furnishings": 0}}})
         self.assertEqual(product_score(rug, custom, {}, DAY)["base"], 64 + 12 + 3)
 
     def test_title_first_word_normalization_and_reserved_prefix(self):

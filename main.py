@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from datetime import date, datetime, timezone
 from pathlib import Path
 
@@ -37,16 +38,23 @@ def run(inputs, outputs, config, collection, as_of):
     files = identify_exports(inputs)
     profiles = load_config(config)
     collections = read_collections(files["Collection"])
+    destination, _ = rank_collection(files, outputs, profiles, collections, collection, as_of)
+    return destination
+
+
+def rank_collection(files, outputs, profiles, collections, collection, as_of, *, targets=None):
     products = read_products(files["Product"])
     selected = select_collection(collection, collections, products)
     sales, history = read_sales(files["Order"], products, as_of)
     ranked, scores = rank_products(products, profiles, sales, as_of)
+    if any(not math.isfinite(score[key]) for score in scores.values() for key in ("base", "adjusted")):
+        raise ValueError("Ranking contains a nonfinite score.")
     family = collection_orders(selected, collections, products, ranked)
-    destination = write_outputs(outputs, family, collections, products, scores, as_of, history, files)
+    destination = write_outputs(outputs, family, collections, products, scores, as_of, history, files, targets=targets)
     print(f"{len(ranked)} products in the master ranking, {len(family)} collection(s).")
     print(f"Orders in export: {history[0]}, dated {history[1]} through {history[2]}.")
     print(f"Review workbook and reorder CSVs: {destination}")
-    return destination
+    return destination, family
 
 
 def main():

@@ -2,7 +2,7 @@
 
 Edit `scoring.json`. The `default` entry supplies the rules for every product. Add an entry named exactly like an exported Shopify `productType` to override rules for that type. Each product in a mixed collection uses its own effective settings.
 
-Overrides merge dictionaries recursively. For example, changing only `Beds.value_reward.vendor.Modway` preserves the other vendor weights. An explicit zero disables the specified field or value. New keys add contributions. Put collection selection on the command line.
+Overrides merge dictionaries recursively. For example, a `Beds` override can change the weight for `Example Home` under `value_reward.vendor` and inherit the default weights for other vendors. An explicit zero disables the specified field or value. New keys add contributions. Put collection selection on the command line.
 
 | Section | How points are calculated |
 | --- | --- |
@@ -30,7 +30,7 @@ For example, merge these entries into the corresponding sections under `default`
 
 The reward contributes 3 points for an `alena` title. The penalty contributes −2 once when any of the previous 12 products has the same first word. The field is derived locally from the existing title export.
 
-In the starting Beds settings, Queen and King each earn 24 stock points and Full earns 16. The Fields sheet in Supplier Product Detail Map lists Full, Queen, King and California King for Beds. California King has no starting weight. A stocked Queen plus a stocked King earns 48 even if several variants offer Queen. A product with no populated size metafields receives zero size points. Product types without an override, including Vases, use the default settings.
+In [the example configuration](scoring.example.json), Queen and King each earn 10 stock points for a bed, and Full earns 4. A bed with two in-stock Queen variants and one in-stock King variant earns 20 size points because each distinct size counts once. An unlisted size or a missing `filter.size` value adds zero size points. Product types without an override use the default settings.
 
 At each rank, the sorter chooses the remaining product with the highest base score plus the applicable repetition penalties. The first product has no predecessor. A tie in adjusted score goes to the higher base score, then the lexicographically smaller Product GID. Scores retain full precision during ranking. The workbook displays points to two decimal places. A score can exceed 100. Filtered collection positions inherit the master order, so they use the master's scoring context.
 

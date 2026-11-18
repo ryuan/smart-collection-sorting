@@ -1,0 +1,84 @@
+name: Collection reorder dry run
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: collection-reorder
+  cancel-in-progress: false
+
+jobs:
+  dry-run:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Check out sorting
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check out Data Manager
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ryuan/shopify-data-manager
+          ref: 2b4d7a85e9e132cc0c760f811b6ff9599d1145b6
+          path: data-manager
+          persist-credentials: false
+
+      - name: Install existing requirements
+        run: |
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install -r requirements.txt -r data-manager/requirements.txt
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare private run files
+        env:
+          BASE_COLLECTIONS: ${{ secrets.BASE_COLLECTIONS_JSON }}
+          SCORING: ${{ secrets.SCORING_JSON }}
+          COLLECTIONS_QUERY: ${{ secrets.SCS_COLLECTIONS_QUERY }}
+          PRODUCTS_QUERY: ${{ secrets.SCS_PRODUCTS_QUERY }}
+          ORDERS_QUERY: ${{ secrets.SCS_ORDERS_QUERY }}
+        run: |
+          umask 077
+          private_run=$(mktemp -d "$RUNNER_TEMP/sorting.XXXXXXXX")
+          echo "PRIVATE_RUN=$private_run" >> "$GITHUB_ENV"
+          mkdir "$private_run/config" "$private_run/bases"
+          printf '%s' "${BASE_COLLECTIONS:?Missing base collection configuration}" > "$private_run/config/base_collections.json"
+          printf '%s' "${SCORING:?Missing scoring configuration}" > "$private_run/config/scoring.json"
+          printf '%s' "${COLLECTIONS_QUERY:?Missing collections query}" > "$private_run/collections.graphql"
+          printf '%s' "${PRODUCTS_QUERY:?Missing products query}" > "$private_run/products.graphql"
+          printf '%s' "${ORDERS_QUERY:?Missing orders query}" > "$private_run/orders.graphql"
+
+      - name: Export collections through Data Manager
+        env: &data-manager
+          PYTHONPATH: ${{ github.workspace }}/data-manager
+          SHOPIFY_SHOP: ${{ secrets.SHOPIFY_SHOP }}
+          SHOPIFY_API_VERSION: ${{ secrets.SHOPIFY_API_VERSION }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+          SHOPIFY_API_KEY: ${{ secrets.SHOPIFY_API_KEY }}
+          SHOPIFY_API_SECRET: ${{ secrets.SHOPIFY_API_SECRET }}
+        run: python .github/scripts/data_manager_dry_run.py collections "$PRIVATE_RUN" > /dev/null 2>&1
+
+      - name: Identify approved families with manual targets
+        run: python automation.py select "$PRIVATE_RUN" > /dev/null 2>&1
+
+      - name: Export shared orders and eligible bases through Data Manager
+        env: *data-manager
+        run: python .github/scripts/data_manager_dry_run.py inputs "$PRIVATE_RUN" > /dev/null 2>&1
+
+      - name: Rank offline and verify every CSV batch
+        run: python automation.py rank "$PRIVATE_RUN" > /dev/null 2>&1
+
+      - name: Check reorder batches with Data Manager
+        env: *data-manager
+        run: |
+          python .github/scripts/data_manager_dry_run.py preflight "$PRIVATE_RUN" > /dev/null 2>&1
+          batches=$(python -c 'import json, sys; print(len(json.load(sys.stdin)))' < "$PRIVATE_RUN/batches.json")
+          echo "Dry run passed for $batches CSV batches. No reorders submitted." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove temporary run files
+        if: always() && env.PRIVATE_RUN != ''
+        run: rm -rf -- "$PRIVATE_RUN"

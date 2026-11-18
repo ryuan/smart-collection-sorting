@@ -130,7 +130,7 @@ def read_collections(path):
         links = metafields(row, (*native, "sortOrder"), COLLECTION_FIELDS)
         if links.keys() - COLLECTION_FIELDS:
             raise ValueError(f"{path.name}: unexpected collection relationship field.")
-        unique_add(result, row["id"], {**{k: row[k] for k in native}, **links})
+        unique_add(result, row["id"], {**{k: row[k] for k in native}, "sortOrder": row.get("sortOrder"), **links})
     return result
 
 
@@ -174,15 +174,21 @@ def read_products(path):
     return products
 
 
-def collection_orders(selected, collections, products, ranking):
-    root = collections[selected]
-    children = root.get("filter.filtered_collections", ())
-    family = {}
-    for gid in [selected, *sorted(children)]:
-        if gid != selected and (gid not in collections or collections[gid].get("filter.base_collection") != {selected}):
+def collection_family(selected, collections):
+    children = collections[selected].get("filter.filtered_collections", ())
+    if selected in children:
+        raise ValueError(f"Collection {selected} links to itself.")
+    for gid in children:
+        if gid not in collections or collections[gid].get("filter.base_collection") != {selected}:
             raise ValueError(f"Missing or conflicting filter.base_collection for linked collection {gid}.")
-        if gid in family:
-            raise ValueError(f"Collection {gid} links to itself.")
+    return [selected, *sorted(children)]
+
+
+def collection_orders(selected, collections, products, ranking):
+    if len(ranking) != len(products) or set(ranking) != products.keys():
+        raise ValueError("Ranking must contain every exported product exactly once.")
+    family = {}
+    for gid in collection_family(selected, collections):
         members = [pid for pid in ranking if gid in products[pid]["collections"]]
         if gid == selected and len(members) != len(products):
             raise ValueError("Products export includes products outside the selected collection. Check collection_id.")

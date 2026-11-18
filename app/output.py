@@ -73,7 +73,7 @@ def write_review(path, family, collections, products, scores, as_of, history, fi
     workbook.save(path)
 
 
-def write_outputs(directory: Path, family, collections, products, scores, as_of, history, files):
+def write_outputs(directory: Path, family, collections, products, scores, as_of, history, files, *, targets=None):
     directory.mkdir(exist_ok=True, parents=True)
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
     destination = directory / f"{stamp}_{collections[next(iter(family))]['handle']}"
@@ -82,11 +82,12 @@ def write_outputs(directory: Path, family, collections, products, scores, as_of,
         stage = Path(temporary) / "run"
         stage.mkdir()
         write_review(stage / f"review_{stamp}.xlsx", family, collections, products, scores, as_of, history, files)
-        for start in range(0, max(map(len, family.values())), BATCH_SIZE):
+        orders = family if targets is None else {cid: family[cid] for cid in targets}
+        for start in range(0, max(map(len, orders.values()), default=0), BATCH_SIZE):
             with (stage / f"reorder_{start // BATCH_SIZE + 1:03d}_{stamp}.csv").open("w", encoding="utf-8", newline="") as stream:
                 writer = csv.writer(stream)
                 writer.writerow(["id", "parentId", "newPosition"])
-                for cid, order in family.items():
+                for cid, order in orders.items():
                     writer.writerows((gid, cid, i) for i, gid in enumerate(order[start:start + BATCH_SIZE], start))
         stage.rename(destination)
     return destination
