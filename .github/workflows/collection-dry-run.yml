@@ -1,7 +1,10 @@
 name: Collection reorder
-run-name: Collection reorder ${{ inputs.mode }}
+run-name: Collection reorder ${{ github.event_name == 'schedule' && 'apply-all' || inputs.mode }}
 
 on:
+  schedule:
+    - cron: '0 0,12 * * *'
+      timezone: America/New_York
   workflow_dispatch:
     inputs:
       mode:
@@ -13,6 +16,7 @@ on:
           - dry-run
           - preview-pilot
           - apply-pilot
+          - apply-all
 
 permissions:
   contents: read
@@ -23,9 +27,11 @@ concurrency:
 
 jobs:
   reorder:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: github.event_name == 'schedule' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    env:
+      REORDER_MODE: ${{ github.event_name == 'schedule' && 'apply-all' || inputs.mode }}
     steps:
       - name: Check out sorting
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -83,26 +89,9 @@ jobs:
       - name: Identify approved families with manual targets
         run: python automation.py select "$PRIVATE_RUN" > /dev/null 2>&1
 
-      - name: Export shared orders and eligible bases through Data Manager
+      - name: Rank, check and process each approved family
         env: *data-manager
-        run: python .github/scripts/data_manager_dry_run.py inputs "$PRIVATE_RUN" > /dev/null 2>&1
-
-      - name: Rank offline and verify every CSV batch
-        run: python automation.py rank "$PRIVATE_RUN" > /dev/null 2>&1
-
-      - name: Check reorder batches with Data Manager
-        env: *data-manager
-        run: |
-          python .github/scripts/data_manager_dry_run.py preflight "$PRIVATE_RUN" > /dev/null 2>&1
-          batches=$(python -c 'import json, sys; print(len(json.load(sys.stdin)))' < "$PRIVATE_RUN/batches.json")
-          echo "Preflight passed for $batches CSV batches." >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Apply pilot and verify both Shopify orders
-        if: inputs.mode == 'apply-pilot'
-        env: *data-manager
-        run: |
-          python .github/scripts/data_manager_dry_run.py apply-pilot "$PRIVATE_RUN" > /dev/null 2>&1
-          echo "Verified the complete Shopify product order on both pilot collections." >> "$GITHUB_STEP_SUMMARY"
+        run: python .github/scripts/data_manager_dry_run.py "$REORDER_MODE" "$PRIVATE_RUN" > /dev/null 2>&1
 
       - name: Remove temporary run files
         if: always() && env.PRIVATE_RUN != ''

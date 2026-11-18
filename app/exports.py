@@ -184,6 +184,10 @@ def collection_family(selected, collections):
     return [selected, *sorted(children)]
 
 
+class CollectionMembershipChanged(ValueError):
+    """The collection snapshot and the product memberships disagree."""
+
+
 def collection_orders(selected, collections, products, ranking):
     if len(ranking) != len(products) or set(ranking) != products.keys():
         raise ValueError("Ranking must contain every exported product exactly once.")
@@ -191,8 +195,13 @@ def collection_orders(selected, collections, products, ranking):
     for gid in collection_family(selected, collections):
         members = [pid for pid in ranking if gid in products[pid]["collections"]]
         if gid == selected and len(members) != len(products):
-            raise ValueError("Products export includes products outside the selected collection. Check collection_id.")
-        check_count(collections[gid], "productsCount", len(members))
+            raise CollectionMembershipChanged("Products export includes products outside the selected collection. Check collection_id.")
+        count = collections[gid]["productsCount"]
+        if isinstance(count, dict) and count.get("precision") == "EXACT" and type(count.get("count")) is int:
+            if count["count"] != len(members):
+                raise CollectionMembershipChanged(f"Incomplete collection membership for {gid}.")
+        else:
+            check_count(collections[gid], "productsCount", len(members))
         family[gid] = members
     return family
 

@@ -1,4 +1,4 @@
-"""Offline entry point for the manual workflow's temporary run directory."""
+"""Offline entry point for the workflow's temporary run directory."""
 from __future__ import annotations
 
 import argparse
@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.exports import collection_family, read_collections
+from app.exports import CollectionMembershipChanged, collection_family, read_collections
 from app.output import BATCH_SIZE
 from app.scoring import load_config
 from main import rank_collection
@@ -65,11 +65,18 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("stage", choices=("select", "rank"))
     parser.add_argument("directory", type=Path)
+    parser.add_argument("--base", type=int, help="Rank one previously selected family.")
     args = parser.parse_args()
     root = args.directory
     profiles = load_config(root / "config/scoring.json")
     ids = approved_ids(root / "config/base_collections.json")
-    collections = read_collections(root / "collections.jsonl")
+    collection_file = root / "collections.jsonl"
+    if args.base is not None:
+        if args.stage != "rank" or args.base not in ids:
+            raise ValueError("Cannot rank an unapproved base.")
+        ids = [args.base]
+        collection_file = root / "bases" / str(args.base) / "collections.jsonl"
+    collections = read_collections(collection_file)
     as_of = datetime.now(timezone.utc).date()
     batches = []
     pilot = root / "config/pilot.txt"
@@ -90,24 +97,41 @@ def main():
             if not set(pilot_targets).issubset(targets):
                 raise ValueError("Both pilot collections must be eligible members of the same family.")
             targets = pilot_targets
-        if not targets:
-            continue
         directory = root / "bases" / str(number)
         if args.stage == "select":
-            directory.mkdir(parents=True)
+            if targets:
+                directory.mkdir(parents=True)
+                (directory / "scope.json").write_text(json.dumps(collection_family(base, collections)))
             continue
-        files = {"Collection": root / "collections.jsonl", "Order": root / "orders.jsonl",
+        if not targets:
+            if args.base is not None:
+                empty_orders = {cid: [] for cid in collection_family(base, collections)
+                                if collections[cid]["sortOrder"] == "MANUAL"}
+                (directory / "plan.json").write_text(json.dumps(
+                    {"orders": empty_orders, "base_members": None, "batches": []}))
+            continue
+        files = {"Collection": collection_file, "Order": root / "orders.jsonl",
                  "Product": directory / "products.jsonl"}
         destination, family = rank_collection(files, directory, profiles, collections, base, as_of,
                                               targets=targets)
-        batches.extend(str(p.relative_to(root)) for p in validate_batches(destination, targets, family))
-        if pilot_targets:
+        paths = [str(p.relative_to(root)) for p in validate_batches(destination, targets, family)]
+        batches.extend(paths)
+        if args.base is not None:
+            # Include empty manual children so a newly populated target triggers a refresh.
+            monitored = pilot_targets or [cid for cid in family if collections[cid]["sortOrder"] == "MANUAL"]
+            plan = {"orders": {cid: family[cid] for cid in monitored},
+                    "base_members": family[base], "batches": paths}
+            (directory / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
+        if pilot_targets and args.base is None:
             expected = {cid: family[cid] for cid in targets}
             (root / "pilot-orders.json").write_text(json.dumps(expected), encoding="utf-8")
-    if args.stage == "rank":
+    if args.stage == "rank" and args.base is None:
         # Publish the exact batch list only after every family's files have passed validation.
         (root / "batches.json").write_text(json.dumps(batches), encoding="utf-8")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except CollectionMembershipChanged:
+        raise SystemExit(75)  # Family needs a fresh collection/product snapshot.

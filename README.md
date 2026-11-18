@@ -1,10 +1,10 @@
 # Smart Collection Sorting
 
-**An offline, configurable ranking engine for Shopify collections.**
+**A configurable product ranking engine for Shopify collections.**
 
 Smart Collection Sorting turns Shopify GraphQL bulk-operation exports into product rankings that balance **availability, merchandising priorities, sales history, recency, and assortment diversity**. It generates an Excel workbook for reviewing the results and CSV batches that can be applied to Shopify's manual collection order.
 
-The program does **not** connect to Shopify or modify a store. Data retrieval and mutation execution are deliberately separate from ranking.
+To rank locally, start with compatible exports from any tool. The ranking command runs offline and needs no Shopify credentials. The optional GitHub Actions workflow connects to Shopify to fetch fresh data, preview reorders, and apply them in live mode.
 
 ## Why it exists
 
@@ -52,7 +52,7 @@ Repetition penalties consider the recently selected products (currently a **12-p
 
 The program also exposes `__title_first_word`, a generated string field taken from the beginning of the product title. It can help identify product families even when products are not explicitly linked as combined listings. It is a heuristic, not a guaranteed model identifier.
 
-## Getting started
+## Getting started locally
 
 ### Requirements
 
@@ -147,37 +147,47 @@ The scoring file has a `default` block and optional collection/product-type over
 
 See [the scoring configuration guide](config/README.md) for the complete set of supported fields and options, and [the generic scoring example](config/scoring.example.json) for a starting point.
 
-### Manual GitHub Actions workflow
+## Optional GitHub Actions workflow
 
-Choose **Actions → Collection reorder → Run workflow** on the default branch. Each run uses fresh Data Manager exports, ranks offline, and validates each CSV against current Shopify data. The default `dry-run` previews every eligible family in the private base allowlist.
+The workflow checks out a pinned version of [Shopify Data Manager](https://github.com/ryuan/shopify-data-manager) for Shopify exports, live checks, and reorder requests. It uses the same ranking code as the local command.
+
+Choose **Actions → Collection reorder → Run workflow** on the default branch.
+
+| Mode | Collections | Effect on Shopify |
+| --- | --- | --- |
+| `dry-run` (manual default) | All approved families | Checks proposed reorders against live data. |
+| `preview-pilot` | One approved base and one linked filtered collection | Checks proposed reorders for the pair. |
+| `apply-pilot` | The same pilot pair | Applies and verifies the product order. |
+| `apply-all` | All approved families | Applies and verifies the product order for eligible collections. |
+
+Only collections already using Shopify’s **Manual** sort order are eligible for writes. Publishing the workflow on the default branch schedules live `apply-all` runs at midnight and noon in `America/New_York`, following daylight saving time.
 
 | Repository secret | Contents |
 | --- | --- |
 | `BASE_COLLECTIONS_JSON`, `SCORING_JSON` | Contents of the private base allowlist and scoring configuration. Update the corresponding secret when you edit a local file. |
 | `SCS_COLLECTIONS_QUERY`, `SCS_PRODUCTS_QUERY`, `SCS_ORDERS_QUERY` | Saved queries for collection relationships and sort order, products and memberships, and order history. The products query needs one numeric `query: "collection_id:…"` filter. |
-| `SHOPIFY_SHOP`, `SHOPIFY_API_VERSION`, `SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET` | Data Manager connection settings. Live reordering also requires Shopify permission to reorder collection products. |
+| `SHOPIFY_SHOP`, `SHOPIFY_API_VERSION`, `SHOPIFY_ACCESS_TOKEN`, `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET` | Shopify connection settings for the workflow. Live reordering also requires Shopify permission to reorder collection products. |
 | `PILOT_COLLECTIONS` | Required for pilot modes only. Enter two comma-separated collection handles in the order `base-handle,child-handle`. The base must be allowlisted, the child linked in both directions, and both collections nonempty and sorted manually. |
 
-**Preview a pilot** with `preview-pilot`. The summary reports how many CSV batches Data Manager checked for the selected pair. Both preview modes stop before submitting any reorder.
+The workflow exports order history once per run. For each approved base, it exports products, ranks the family, and checks every CSV batch. In live mode, it checks current positions before each batch, waits for Shopify to finish, and reads the order back. It verifies the complete order of each target collection before moving to the next family.
 
-**Apply a pilot** with `apply-pilot` when you want to change the two collections in Shopify. The workflow generates a fresh ranking, checks all batches, and replans each batch immediately before applying it. Data Manager waits for the Shopify jobs. The workflow reads the order back after each batch and verifies every position on both collections before reporting success. If a live run fails, earlier moves may already be visible. Check the collections before starting another run.
+If product membership changes before the family's first write, the workflow refreshes that family's collection and product data and ranks it again, once. After a write, it stops the remaining batches and independently reads Shopify's order. Recovery requires the surviving products from the applied positions to still be in the expected order. The workflow then rebuilds that family's ranking from fresh data and resumes from Shopify's current positions. A second change during that recovery, an unverifiable order, or a Shopify mutation error stops the run. Earlier successful moves can already be visible.
 
 Exports, rankings and CSVs use temporary runner storage. The workflow suppresses their contents in logs and uploads no artifacts.
 
-## Output
+## Local output
 
-Each run writes a timestamped directory under `outputs/` containing:
+Each local run writes two types of files in a timestamped directory under `outputs/`.
 
 - **`review_<timestamp>.xlsx`** — product rankings, component score breakdowns, collection positions, and run details for inspection.
 - **`reorder_<batch>_<timestamp>.csv`** — Shopify reorder records with `id`, `parentId`, and zero-based `newPosition`, limited to 250 positions per collection per batch.
 
-These are **proposed** orders. The program does not apply mutations. To publish a ranking, ensure the destination collections use Shopify's **Manual** sort order, then apply the CSV batches in sequence through a compatible Shopify mutation tool.
+To apply a local ranking, submit the CSV batches in sequence through a compatible Shopify reorder tool. Each destination collection must already use Shopify’s **Manual** sort order.
 
 Neither `inputs/` nor `outputs/` is committed to Git.
 
 ## Design principles
 
-- **Offline by design:** The ranking engine has no Shopify credentials or network dependency.
 - **Explainable scores:** The review workbook exposes the contributions behind the result.
 - **Simple configuration:** Store-specific priorities live in JSON rather than being hard-coded into the algorithm.
 - **Consistent filtered collections:** Linked filtered collections retain their relative order from the selected master ranking.
