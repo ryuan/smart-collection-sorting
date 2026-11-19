@@ -3,7 +3,7 @@ run-name: Collection reorder ${{ github.event_name == 'schedule' && 'apply-all' 
 
 on:
   schedule:
-    - cron: '0 0,12 * * *'
+    - cron: '45 0,12 * * *'
       timezone: America/New_York
   workflow_dispatch:
     inputs:
