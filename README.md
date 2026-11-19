@@ -160,7 +160,7 @@ Choose **Actions → Collection reorder → Run workflow** on the default branch
 | `apply-pilot` | The same pilot pair | Applies and verifies the product order. |
 | `apply-all` | All approved families | Applies and verifies the product order for eligible collections. |
 
-Only collections already using Shopify’s **Manual** sort order are eligible for writes. Publishing the workflow on the default branch schedules live `apply-all` runs at 12:45 a.m. and 12:45 p.m. in `America/New_York`, following daylight saving time.
+Only collections already using Shopify’s **Manual** sort order are eligible for writes. Publishing the workflow on the default branch schedules live `apply-all` runs at 12:23 a.m. and 11:53 a.m. in `America/New_York`, following daylight saving time.
 
 | Repository secret | Contents |
 | --- | --- |
